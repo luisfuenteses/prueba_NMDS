@@ -1,0 +1,253 @@
+---
+title: "prueba_NMDS"
+format: html
+editor: visual
+---
+
+## Librerías
+
+```{r, warning=FALSE, message=FALSE}
+library(vegan)      # Para el NMDS y extracción de coord. ambientales
+library(ggbiplot)   # Para la realización de las figuras
+library(ggsci)      # Complemento del ggplot2 en las figuras
+library(ggforce)    # Complemento del ggplot2 en las figuras
+library(concaveman) # Complemento del ggplot2 en las figuras
+library(ggplot2)    # Paquete gráfico
+library(reshape2)   # Complemento del ggplot2 en las figuras
+library(ggrepel)    # Complemento del ggplot2 en las figuras
+library(corrplot)   # Figuras de elipses
+library(kableExtra) # Para la edición de las tablas)
+library(readxl)
+library(dplyr)
+```
+
+## Base de datos
+
+```{r}
+spe <- read_excel("peces marinos méxico_biológicos.xlsx", sheet = "Hoja2", col_names = TRUE)
+
+env <- read_excel("peces marinos méxico_ambientales.xlsx", col_names = TRUE)
+```
+
+```{r}
+spe <- spe %>% 
+  select_at(vars(c(2:90)))
+env <- env %>% 
+  select_at(vars(c(2:38)))
+```
+
+```{r}
+# Transformación de abundancias
+spe.h = decostand(spe, "hellinger")
+head(round(spe.h,3)) %>% 
+  kbl() %>% 
+  kable_classic(full_width=F)
+```
+
+### **1. Ordenación con NMDS - paquete vegan**
+
+#### **Paso 1. Correr el NMDS y analizar la disitancia usada y el estrés**
+
+La distancia utilizada es la Bray-Curtis. El estrés es 0.13 (13%), que corresponde a una buena configuración del análisis multivariado.
+
+```{r}
+# Escalamiento multidimensional "spe.nmds"
+spe.mds <- metaMDS(spe.h, 
+                    distance = "bray",
+                    trace = FALSE)
+spe.mds
+```
+
+#### **Paso 2. Figuras del nmds con el paquete “vegan”**
+
+```{r, fig.height=9}
+# 1. Figura con todas las especies
+plot(spe.mds,type = "t",cex=1.2,     # type="t" grafica sitios y especies
+     ylab="Dim 2", xlab="Dim 1",     # main: Título de la figura
+     main = paste("nMDS/Estrés =",     
+     round(spe.mds$stress, 3)))      # spe.mds$stress: valor del estrés
+abline(v=0, lty=2, col=4)
+abline(h=0, lty=2, col=4)
+```
+
+#### **Figura del NMDS con el comando *orditorp***
+
+```{r, warning=FALSE, fig.height=8}
+# 2. Figura sin solapamiento de especies - comando "orditorp"
+plot(spe.mds,type = "n",
+     display = c("sites", "species"),          # type="n" sin texto.
+     ylab="Dim 2", xlab="Dim 1",
+     main = paste("nMDS/Estrés =",             # R?tulo del título.
+     round(spe.mds$stress, 3)))
+
+text(spe.mds, display="sites",                 # Grafica los sitios
+     cex=1, col="blue", lwd=1.5, pos=3)
+
+ordi= orditorp(spe.mds, display = "species",   # Grafica especies sin solapar
+      shrink = FALSE, col = "red", type="n",cex=1.2) 
+
+points(spe.mds, display = "sites",             # Opcional - puntos de muestreo
+       cex = 0.6, col = "lightblue", lwd=1.5)
+
+abline(h=0, lty=2, col=4)
+abline(v=0, lty=2, col=4)
+```
+
+#### **Figura del NMDS con variables ambientales**
+
+```{r}
+# Insertar variables ambientales al nMDS
+# Ambientales (env)
+env1 = envfit(spe.mds,env)
+env1
+```
+
+```{r, warning=FALSE, fig.height=8}
+# 2. Figura sin solapamiento de especies - comando "orditorp"
+plot(spe.mds,type = "n",
+     display = c("sites", "species"),          # type="n" sin texto.
+     ylab="Dim 2", xlab="Dim 1",
+     main = paste("nMDS/Estrés =",             # R?tulo del título.
+     round(spe.mds$stress, 3)))
+
+text(spe.mds, display="sites",                 # Grafica los sitios
+     cex=1, col="blue", lwd=1.5, pos=3)
+
+ordi= orditorp(spe.mds, display = "species",   # Grafica especies sin solapar
+      shrink = FALSE, col = "red", type="n",cex=1.2) 
+
+plot(env1,p.max=0.05,col=3)
+
+points(spe.mds, display = "sites",             # Opcional - puntos de muestreo
+       cex = 0.6, col = "lightblue", lwd=1.5)
+
+abline(h=0, lty=2, col=4)
+abline(v=0, lty=2, col=4)
+```
+
+### **Generación de factores (variables agrupadoras)**
+
+```{r}
+datos.w <- hclust(vegdist(spe), "ward.D")  # Grupos con Cluster con ward
+gr <- cutree(datos.w, k = 3)        # Generar 4 grupos (factor gr)
+datos.gr=data.frame(gr,spe)         # Base de datos con el factor agrupador
+datos.gr$gr=as.factor(datos.gr$gr)  # Crear la columna gr como factor
+
+# Presentación de la tabla con las 10 primeras filas
+datos.gr[1:10,] %>% 
+  kbl(booktabs = F) %>% 
+  kable_classic(full_width=F, html_font = "Cambria")
+```
+
+### **2. Ordenación NMDS con ggplot2**
+
+```{r}
+# Escalamiento multidimensional "spe.nmds"
+spe.mds <- metaMDS(spe.h, 
+                    distance = "bray",
+                    trace = FALSE)
+```
+
+#### **3.1 Coordenadas de los sitios y el factor “coord.sit”**
+
+```{r}
+coord.sit <- as.data.frame(spe.mds$points)      # Coordenadas de los sitios
+coord.sit$sitio <- rownames(coord.sit)          # Crear una columna con nombres de los sitios
+coord.sit$grp <-  datos.gr$gr                   # Adicionar columna de grupos por especie
+colnames(coord.sit)<- c("NMDS1","NMDS2","sitio","grp")
+head(coord.sit) %>% 
+  kbl() %>% 
+  kable_classic(full_width=FALSE)
+```
+
+#### **3.2 Coordenadas de las especies “coord.esp”**
+
+```{r}
+# Obtener coordenadas de especies (usando el método correcto para metaMDS)
+coord.esp <- as.data.frame(spe.mds$species)  # Alternativa directa
+
+# O la forma más robusta:
+coord.esp <- as.data.frame(vegan::scores(spe.mds, display = "species", choices = c(1,2)))
+
+# Añadir nombres de especies
+coord.esp$especies <- rownames(coord.esp)
+
+# Mostrar primeras filas (con kableExtra si lo deseas)
+head(coord.esp) %>% 
+  kbl() %>% 
+  kable_classic(full_width = FALSE)
+```
+
+#### **3.3 Coordenadas de las ambientales “coord.amb”**
+
+```{r}
+amb = envfit(spe.mds,env) 
+coord.amb = as.data.frame(amb$vectors$arrows)
+coord.amb$amb <- rownames(coord.amb)         # Insertar columna con nombres de las ambientales
+head(coord.amb) %>% 
+  kbl() %>% 
+  kable_classic(full_width=FALSE)
+# Para los casos en los que "vectors" no funcione, aplicar:
+# coord.amb = as.data.frame(amb$vectors$arrows)
+```
+
+#### **3.4 Figura con de elipses por concavidades - geom_mark_elipse**
+
+```{r, warning=FALSE, fig.height=6}
+ggplot() +
+  # Factor
+  geom_mark_ellipse(data=coord.sit,aes(x=NMDS1, y=NMDS2, 
+                    colour=grp,fill=grp), alpha=0.2, 
+                    expand=0, size=0.2) +
+  # Sitios
+  geom_text_repel(data = coord.sit,aes(NMDS1,NMDS2,label=row.names(coord.sit)),
+                  size=4)+   # Muestra el cuadro de la figura
+  geom_point(data = coord.sit,aes(NMDS1,NMDS2,colour=grp),size=4)+
+  scale_shape_manual(values = c(21:25)) +
+  
+  # Taxones  *valores de cero para caracteres de las flechas (arrow)
+  geom_segment(data = coord.esp,aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(angle=0,length = unit(0,"cm"),
+                             type = "closed"),linetype=0, size=0,colour = "red")+
+  geom_text_repel(data = coord.esp,aes(NMDS1,NMDS2,label=especies),colour = "red") +
+
+  
+  geom_hline(yintercept=0,linetype=3,size=1) + 
+  geom_vline(xintercept=0,linetype=3,size=1)+
+  guides(shape=guide_legend(title=NULL,color="black"),
+         fill=guide_legend(title=NULL))+
+  theme_bw()+theme(panel.grid=element_blank())
+```
+
+#### **3.5 Figura con vectores de especies y variables ambientales**
+
+```{r, warning=FALSE, fig.height=7}
+ggplot() +
+  # Factor
+geom_mark_ellipse(data=coord.sit, aes(x=NMDS1,y=NMDS2,fill=grp,group=grp,
+                                     colour=grp),alpha=0.30)  +
+  
+  geom_hline(yintercept=0,linetype=3,size=1) + 
+  geom_vline(xintercept=0,linetype=3,size=1)+
+  guides(shape=guide_legend(title=NULL,color="black"),
+         fill=guide_legend(title=NULL))+
+  theme_bw()+theme(panel.grid=element_blank()) +
+  
+  # Sitios
+  geom_text_repel(data = coord.sit,aes(NMDS1,NMDS2,label=row.names(coord.sit)),
+                  size=4)+   # Muestra el cuadro de la figura
+  geom_point(data = coord.sit,aes(NMDS1,NMDS2,colour=grp),size=4)+
+  scale_shape_manual(values = c(21:25)) +
+  
+  # Taxones  *valores de cero para caracteres de las flechas (arrow)
+  geom_segment(data = coord.esp,aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(angle=0,length = unit(0,"cm"),
+                             type = "closed"),linetype=0, size=0,colour = "red")+
+  geom_text_repel(data = coord.esp,aes(NMDS1,NMDS2,label=especies),colour = "red") +
+
+  # Ambiental  
+  geom_segment(data = coord.amb,aes(x = 0, y = 0, xend = NMDS1, yend = NMDS2), 
+               arrow = arrow(angle=22.5,length = unit(0.25,"cm"),
+                             type = "closed"),linetype=1, size=0.6,colour = "blue")+
+  geom_text_repel(data = coord.amb,aes(NMDS1,NMDS2,label=row.names(coord.amb)),colour = "blue") 
+```
